@@ -34,7 +34,7 @@ func (n *Bool) UnmarshalJSON(b []byte) error {
 }
 
 // Scan implements the Scanner interface from database/sql
-func (n *Bool) Scan(src interface{}) error {
+func (n *Bool) Scan(src any) error {
 	// Set initial state for subsequent scans.
 	n.Valid = false
 
@@ -56,4 +56,3 @@ func (n Bool) Value() (driver.Value, error) {
 	}
 	return n.Bool, nil
 }
-

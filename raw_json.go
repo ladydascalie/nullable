@@ -30,7 +30,7 @@ func (n *RawJSON) UnmarshalJSON(b []byte) error {
 }
 
 // Scan implements the Scanner interface from database/sql
-func (n *RawJSON) Scan(src interface{}) error {
+func (n *RawJSON) Scan(src any) error {
 	var a sql.NullString
 	if err := a.Scan(src); err != nil {
 		return err
@@ -44,4 +44,3 @@ func (n *RawJSON) Scan(src interface{}) error {
 func (n RawJSON) Value() (driver.Value, error) {
 	return string(n), nil
 }
-

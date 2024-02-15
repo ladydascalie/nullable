@@ -1,8 +1,10 @@
 package nullable
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -133,7 +135,7 @@ func TestNullString_Scan(t *testing.T) {
 		name    string
 		n       *String
 		wantErr bool
-		src     interface{}
+		src     any
 	}{
 		{
 			name: "valid",
@@ -309,7 +311,7 @@ func TestNullBool_Scan(t *testing.T) {
 		name    string
 		n       *Bool
 		wantErr bool
-		src     interface{}
+		src     any
 	}{
 		{
 			name: "valid",
@@ -474,7 +476,7 @@ func TestTime_Scan(t *testing.T) {
 		name    string
 		n       *Time
 		wantErr bool
-		src     interface{}
+		src     any
 	}{
 		{
 			name: "valid",
@@ -633,7 +635,7 @@ func TestNullInt64_Scan(t *testing.T) {
 		name    string
 		n       *Int64
 		wantErr bool
-		src     interface{}
+		src     any
 	}{
 		{
 			name: "valid",
@@ -714,6 +716,7 @@ func TestNullInt64_MarshalJSON(t *testing.T) {
 		})
 	}
 }
+
 func TestNullFloat64_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -795,7 +798,7 @@ func TestNullFloat64_Scan(t *testing.T) {
 		name    string
 		n       *Float64
 		wantErr bool
-		src     interface{}
+		src     any
 	}{
 		{
 			name: "valid",
@@ -896,6 +899,7 @@ func TestToNullBool(t *testing.T) {
 		t.Errorf("expected false, got %v", bb2.Bool)
 	}
 }
+
 func TestToNullInt64(t *testing.T) {
 	b := int64(123)
 	bb := MakeInt64(&b)
@@ -935,6 +939,7 @@ func TestToNullFloat64(t *testing.T) {
 		t.Errorf("expected 0, got %v", bb2.Float64)
 	}
 }
+
 func TestToNullString(t *testing.T) {
 	b := "qwe"
 	bb := MakeString(&b)
@@ -954,6 +959,7 @@ func TestToNullString(t *testing.T) {
 		t.Errorf("expected <empty string>, got %v", bb2.String)
 	}
 }
+
 func TestToTime(t *testing.T) {
 	tim := time.Now()
 	bb := MakeTime(tim)
@@ -999,4 +1005,312 @@ func TestRawJSON_MarshalJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+type Person struct {
+	Name string
+	Age  int
+}
+
+func (p Person) Value() (driver.Value, error) {
+	return json.Marshal(p)
+}
+
+func (p *Person) Scan(src interface{}) error {
+	switch src := src.(type) {
+	case []byte:
+		return json.Unmarshal(src, p)
+	default:
+		return fmt.Errorf("unexpected type: %T", src)
+	}
+}
+
+func TestNullBoxing(t *testing.T) {
+	str := Null[string]{
+		V:     "hello",
+		Valid: true,
+	}
+	num := Null[int]{
+		V:     123,
+		Valid: true,
+	}
+
+	p := Person{
+		Name: "John",
+		Age:  30,
+	}
+	comp := Null[Person]{
+		V:     p,
+		Valid: true,
+	}
+
+	t.Run("strings", func(t *testing.T) {
+		t.Run("MarshalJSON", func(t *testing.T) {
+			b, err := str.MarshalJSON()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if string(b) != `"hello"` {
+				t.Fatalf("unexpected value: %q", string(b))
+			}
+		})
+
+		t.Run("UnmarshalJSON", func(t *testing.T) {
+			var s2 Null[string]
+			err := s2.UnmarshalJSON([]byte(`"hello"`))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if s2.V != "hello" {
+				t.Fatalf("unexpected value: %q", s2.V)
+			}
+
+			if !s2.Valid {
+				t.Fatalf("expected valid")
+			}
+		})
+
+		t.Run("Scan", func(t *testing.T) {
+			var s3 Null[string]
+			err := s3.Scan("hello")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if s3.V != "hello" {
+				t.Fatalf("unexpected value: %q", s3.V)
+			}
+
+			if !s3.Valid {
+				t.Fatalf("expected valid")
+			}
+		})
+
+		t.Run("Scan null", func(t *testing.T) {
+			var s4 Null[string]
+			err := s4.Scan(nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if s4.V != "" {
+				t.Fatalf("unexpected value: %q", s4.V)
+			}
+
+			if s4.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+
+		t.Run("Value", func(t *testing.T) {
+			v, err := str.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if v != "hello" {
+				t.Fatalf("unexpected value: %q", v)
+			}
+		})
+
+		t.Run("Value null", func(t *testing.T) {
+			var s5 Null[string]
+			v, err := s5.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if v != nil {
+				t.Fatalf("unexpected value: %v", v)
+			}
+
+			if s5.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+	})
+
+	t.Run("ints", func(t *testing.T) {
+		t.Run("MarshalJSON", func(t *testing.T) {
+			b, err := num.MarshalJSON()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if string(b) != "123" {
+				t.Fatalf("unexpected value: %q", string(b))
+			}
+		})
+
+		t.Run("UnmarshalJSON", func(t *testing.T) {
+			var num2 Null[int]
+			err := num2.UnmarshalJSON([]byte("123"))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if num2.V != 123 {
+				t.Fatalf("unexpected value: %d", num2.V)
+			}
+		})
+
+		t.Run("Scan", func(t *testing.T) {
+			var num3 Null[int]
+			err := num3.Scan(123)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if num3.V != 123 {
+				t.Fatalf("unexpected value: %d", num3.V)
+			}
+
+			if !num3.Valid {
+				t.Fatalf("expected valid")
+			}
+		})
+
+		t.Run("Scan null", func(t *testing.T) {
+			var num4 Null[int]
+			err := num4.Scan(nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if num4.V != 0 {
+				t.Fatalf("unexpected value: %d", num4.V)
+			}
+
+			if num4.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+
+		t.Run("Value", func(t *testing.T) {
+			v, err := num.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if v != 123 {
+				t.Fatalf("unexpected value: %d", v)
+			}
+		})
+
+		t.Run("Value null", func(t *testing.T) {
+			var num5 Null[int]
+
+			v, err := num5.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if v != nil {
+				t.Fatalf("unexpected value: %v", v)
+			}
+
+			if num5.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+	})
+
+	t.Run("complex", func(t *testing.T) {
+		t.Run("MarshalJSON", func(t *testing.T) {
+			b, err := comp.MarshalJSON()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			exp := `{"Name":"John","Age":30}`
+			if string(b) != exp {
+				t.Fatalf("unexpected value: %q", string(b))
+			}
+		})
+
+		t.Run("UnmarshalJSON", func(t *testing.T) {
+			var p2 Null[Person]
+			err := p2.UnmarshalJSON([]byte(`{"Name":"John","Age":30}`))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if comp.V != p2.V {
+				t.Fatalf("unexpected value: %+v", comp.V)
+			}
+		})
+
+		t.Run("Scan", func(t *testing.T) {
+			var p3 Null[Person]
+			err := p3.Scan([]byte(`{"Name":"John","Age":30}`))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if comp.V != p3.V {
+				t.Fatalf("unexpected value: %+v", comp.V)
+			}
+
+			if !comp.Valid {
+				t.Fatalf("expected valid")
+			}
+		})
+
+		t.Run("Scan null", func(t *testing.T) {
+			p := Null[Person]{}
+			err := p.Scan(nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if p.V != (Person{}) {
+				t.Fatalf("unexpected value: %+v", p.V)
+			}
+
+			if p.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+
+		t.Run("Value", func(t *testing.T) {
+			v, err := comp.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			p := Person{}
+			if err := json.Unmarshal(v.([]byte), &p); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if comp.V != p {
+				t.Fatalf("unexpected value: %+v", comp.V)
+			}
+		})
+
+		t.Run("Value null", func(t *testing.T) {
+			var complex2 Null[Person]
+
+			v, err := complex2.Value()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			raw, _ := json.Marshal(Person{})
+
+			if bytes.Compare(v.([]byte), raw) != 0 {
+				t.Fatalf("unexpected value: %+s", v)
+			}
+
+			if complex2.V != (Person{}) {
+				t.Fatalf("expected not valid")
+			}
+
+			if complex2.Valid {
+				t.Fatalf("expected not valid")
+			}
+		})
+	})
 }

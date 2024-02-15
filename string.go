@@ -35,7 +35,7 @@ func (n *String) UnmarshalJSON(b []byte) error {
 }
 
 // Scan implements the Scanner interface from database/sql
-func (n *String) Scan(src interface{}) error {
+func (n *String) Scan(src any) error {
 	// Set initial state for subsequent scans.
 	n.Valid = false
 
