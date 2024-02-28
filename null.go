@@ -16,7 +16,7 @@ type Null[T any] struct {
 // MarshalJSON for Null
 func (n Null[T]) MarshalJSON() ([]byte, error) {
 	if !n.Valid {
-		return nullLiteral, nil
+		return nil, nil
 	}
 	return json.Marshal(n.V)
 }
